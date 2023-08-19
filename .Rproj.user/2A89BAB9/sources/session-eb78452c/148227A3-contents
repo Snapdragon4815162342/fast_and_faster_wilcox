@@ -1,0 +1,398 @@
+library('microbenchmark')
+library('bigmemory')
+library('gficf')
+library('peakRAM')
+library('ggplot2')
+
+library('Rcpp')
+sourceCpp("Rcpp_MWU_Lorenzo.cpp", verbose = TRUE, rebuild = TRUE)
+rcpp_MWU_Lor(c(45, 33, 35, 39, 42), c(34, 36, 41, 43, 44, 37), verbose = T)
+
+
+setwd('/home/atropa/wilcox_vs_gficf')
+
+# Questo script testa la velocità di esecuzione e il consumo di memoria delle 
+# funzioni wilcox(...), gficf:::rcpp_WMU_test(...), gficf:::rcpp_parallel_WMU_test e 
+# rcpp_MWU_Lor(...) -> (funzione scritta da me)
+
+
+
+set.seed(1)
+
+ndecadi = 4
+nRepetitions = 10
+
+# Sul mio computer(usando una virtual machine), questo ciclo for impiega circa  45 minuti
+
+for (i in 1:ndecadi){
+  ncol = 10^i;
+    # Inizializzo due vettori con valori random
+    #M <- big.matrix(nrow_max, ncol_max, type = 'double', init = 0)
+    
+    a <- rnorm(ncol, mean = 1, sd = 1)
+    b <- rnorm(ncol, mean = 1, sd = 1)
+    
+    # Eseguo wilcox e rcpp_WMU_test tra i 2 vettori salvando il tempo di esecuzione
+    
+    #Wilcox.test
+    mb_res_wilcox<-microbenchmark(wilcox.test(a, b, alternative = "two.sided", paired = F, exact = F, correct = F), times = nRepetitions)
+    pr_wilcox <- peakRAM(wilcox.test(a, b, alternative = "two.sided", paired = F, exact = F, correct = F))
+    if (i==1){
+      exec_time_wilcox <- mean(mb_res_wilcox[,2])/10^9
+      sd_time_wilcox <- sd(mb_res_wilcox[,2])/10^9
+      peak_ram_wilcox <- pr_wilcox[1,4] 
+    }else{
+      exec_time_wilcox <- c(exec_time_wilcox, mean(mb_res_wilcox[,2])/10^9)
+      sd_time_wilcox <- c(sd_time_wilcox, sd(mb_res_wilcox[,2])/10^9)
+      peak_ram_wilcox <- c(peak_ram_wilcox, pr_wilcox[1,4])
+      }
+    
+    #gficf rcpp_WMU_test
+    m <- t(as.matrix(c(a,b)))
+    
+    mb_res_gficf <- microbenchmark(gficf:::rcpp_WMU_test(m,1:length(a),(length(a)+1):length(m)), times = nRepetitions)
+    pr_gficf <- peakRAM(gficf:::rcpp_WMU_test(m,1:length(a),(length(a)+1):length(m)))
+    if(i==1){
+      exec_time_gficf <- mean(mb_res_gficf[,2])/10^9
+      sd_time_gficf <- sd(mb_res_gficf[,2])/10^9
+      peak_ram_gficf <- pr_gficf[1,4]
+    }else{
+      exec_time_gficf <- c(exec_time_gficf,mean(mb_res_gficf[,2])/10^9)
+      sd_time_gficf <- c(sd_time_gficf, sd(mb_res_gficf[,2])/10^9)
+      peak_ram_gficf <- c(peak_ram_gficf, pr_gficf[1,4])
+    }
+    
+    #rcpp_MWU_Lor
+    mb_res_rcpp_MWU_Lor <- microbenchmark(rcpp_MWU_Lor(a, b), times = nRepetitions)
+    pr_rcpp_MWU_Lor <- peakRAM(rcpp_MWU_Lor(a, b))
+    if (i==1){
+      exec_time_rcpp_MWU_Lor <- mean(mb_res_rcpp_MWU_Lor[,2])/10^9
+      sd_time_rcpp_MWU_Lor <- sd(mb_res_rcpp_MWU_Lor[,2])/10^9
+      peak_ram_rcpp_MWU_Lor <- pr_rcpp_MWU_Lor[1,4] 
+
+    }else{
+      exec_time_rcpp_MWU_Lor <- c(exec_time_rcpp_MWU_Lor,mean(mb_res_rcpp_MWU_Lor[,2])/10^9)
+      sd_time_rcpp_MWU_Lor <- c(sd_time_rcpp_MWU_Lor, sd(mb_res_rcpp_MWU_Lor[,2])/10^9)
+      peak_ram_rcpp_MWU_Lor <- c(peak_ram_rcpp_MWU_Lor, pr_rcpp_MWU_Lor[1,4])
+    }
+  }
+
+# Rimuovo a,b e m perchè occupano troppa memoria
+rm(a)
+rm(b)
+rm(m)
+
+
+# Eseguo rcpp_parallel_WMU(...) tra le 2 matrici m1 e m2 e salvo il tempo di esecuzione
+for (i in 1:ndecadi){
+  m1 <- matrix(1:10, nrow = 10^i, ncol = 10)
+  m2 <- matrix(11:20, nrow = 10^i, ncol = 10)
+  mb_res_paral <- microbenchmark(gficf:::rcpp_parallel_WMU_test(m1,m2,printOutput = FALSE), times = nRepetitions )
+  pr_res_paral <- peakRAM(gficf:::rcpp_parallel_WMU_test(m1,m2,printOutput = FALSE))
+  
+  if(i == 1){
+    exec_time_paral = mean(mb_res_paral[,2])/10^9
+    sd_time_paral = sd(mb_res_paral[,2])/10^9
+    peak_ram_paral = pr_res_paral[1,4]
+      }else{
+        exec_time_paral <- c(exec_time_paral, mean(mb_res_paral[,2])/10^9)
+        sd_time_paral <- c(sd_time_paral, sd(mb_res_paral[,2])/10^9)
+        peak_ram_paral <- c(peak_ram_paral, pr_res_paral[1,4])
+  }
+  }
+
+# Creo il data.frame
+vector_size = 10^c(1:ndecadi)
+
+results <- data.frame(vector_size, 
+                      exec_time_wilcox, sd_time_wilcox, peak_ram_wilcox,
+                      exec_time_gficf, sd_time_gficf, peak_ram_gficf,
+                      exec_time_paral, sd_time_paral, peak_ram_paral,
+                      exec_time_rcpp_MWU_Lor, sd_time_rcpp_MWU_Lor, peak_ram_rcpp_MWU_Lor)
+names(results) <- c('vector_size', 
+                    'time_wilcox', 'sd_wilcox', 'peak_ram_wilcox', 
+                    'time_gficf', 'sd_gficf', 'peak_ram_gficf',
+                    'time_paral', 'sd_paral', 'peak_ram_paral',
+                    'time_rcpp_MWU_Lor', 'sd_rcpp_MWU_Lor', 'peak_ram_rcpp_MWU_Lor')
+
+write.csv(results, "benchmark_MWU_test.csv", row.names=FALSE)
+
+# % di migioramento tempi rispetto a wilcox:
+
+improvement_gficf = ((results$time_wilcox/results$time_gficf)/results$time_wilcox)*100
+improvement_gficf_parall = ((results$time_wilcox/results$time_paral)/results$time_paral)*100
+
+
+#############################################################################################################################
+# Visualizzo i tempi di esecuzione
+
+ggplot(data = results,
+       mapping = aes(x = log10(vector_size)))+
+  
+  geom_point(aes(y = exec_time_wilcox),
+             size = 3,
+             colour = 'red')+
+  geom_line(y = exec_time_wilcox, colour= 'red')+
+  geom_errorbar( aes(ymin = exec_time_wilcox-sd_time_wilcox, 
+                     ymax = exec_time_wilcox+sd_time_wilcox), 
+                     width=0.4, 
+                     colour="orange", 
+                     alpha=0.9, 
+                     size=1.3)+
+  
+  geom_point(aes(y = exec_time_gficf),
+             size = 3,
+             colour = 'green')+
+  geom_line(y = exec_time_gficf, colour= 'green')+
+  geom_errorbar( aes(ymin = exec_time_gficf-sd_time_gficf, 
+                     ymax = exec_time_gficf+sd_time_gficf), 
+                 width=0.4, 
+                 colour="orange", 
+                 alpha=0.9, 
+                 size=1.3)+
+  
+  geom_point(aes(y = exec_time_paral),
+             size = 3,
+             colour = 'blue')+
+  geom_line(y = exec_time_paral, colour= 'blue')+
+  geom_errorbar( aes(ymin = exec_time_paral-sd_time_paral, 
+                     ymax = exec_time_paral+sd_time_paral), 
+                 width=0.4, 
+                 colour="orange", 
+                 alpha=0.9, 
+                 size=1.3)+
+  
+  geom_point(aes(y = exec_time_rcpp_MWU_Lor),
+             size = 3,
+             colour = 'cyan')+
+  geom_line(y = exec_time_rcpp_MWU_Lor, colour= 'cyan')+
+  geom_errorbar( aes(ymin = exec_time_rcpp_MWU_Lor-sd_time_rcpp_MWU_Lor, 
+                     ymax = exec_time_rcpp_MWU_Lor+sd_time_rcpp_MWU_Lor), 
+                 width=0.4, 
+                 colour="orange", 
+                 alpha=0.9, 
+                 size=1.3)+
+  theme(axis.text.x = element_text(face="bold", color="#993333", 
+                                  size=14, angle=45),
+        axis.text.y = element_text(face="bold", color="#993333", 
+                                   size=14, angle=45))+
+  scale_x_continuous(labels = as.character(log10(vector_size)), breaks = log10(vector_size))+
+  labs(x = 'log10(input vector size)', y = 'execution time [s]')+
+  labs(title = "Execution time (red = wilcox, green = gficf, blue = gficf_parallel)")
+  
+#########################################################################################################################
+# Visualizzo la ram utilizzata
+
+ggplot(data = results,
+       mapping = aes(x = log10(vector_size)))+
+  
+  geom_point(aes(y = peak_ram_wilcox),
+             size = 3,
+             colour = 'red')+
+  geom_line(y = peak_ram_wilcox, colour= 'red')+
+  
+  geom_point(aes(y = peak_ram_gficf),
+             size = 3,
+             colour = 'green')+
+  geom_line(y = peak_ram_gficf, colour= 'green')+
+  
+  geom_point(aes(y = peak_ram_paral),
+             size = 3,
+             colour = 'blue')+
+  geom_line(y = peak_ram_paral, colour= 'blue')+
+  
+  geom_point(aes(y = peak_ram_rcpp_MWU_Lor),
+             size = 3,
+             colour = 'cyan')+
+  geom_line(y = peak_ram_rcpp_MWU_Lor, colour= 'cyan')
+  
+  theme(axis.text.x = element_text(face="bold", color="#993333", 
+                                   size=14, angle=45),
+        axis.text.y = element_text(face="bold", color="#993333", 
+                                   size=14, angle=45))+
+  scale_x_continuous(labels = as.character(log10(vector_size)), breaks = log10(vector_size))+
+  labs(x = 'log10(input vector size)', y = 'peak_ram [Mb]')+
+  labs(title = "Peak ram usage [Mb](red = wilcox, green = gficf, blue = gficf_parallel)")
+
+
+#########################################################################################################################
+# Problema!!! le 2 funzioni non restituiscono gli stessi p-value
+
+
+a_test <- c(34,36,41,43,44,37)
+b_test <- c(45,33,35,39,42)
+# true two sided p-value = 0.855
+
+m_test <- t(as.matrix(c(a_test,b_test)))
+
+test_result_gficf <- gficf:::rcpp_WMU_test(m_test,1:length(a_test),(length(a_test)+1):length(m_test))
+test_result_wilcox <- wilcox.test(a_test, b_test, alternative = "two.sided", paired = F, exact = F, correct = F)
+test_result_rcpp_MWU_Lor <- rcpp_MWU_Lor(a_test, b_test)
+
+test_result_gficf[1]   # p-value = 0.927
+test_result_wilcox$p.value  # p_value = 0.855 -> corretto
+test_result_rcpp_MWU_Lor[1]  # p_value = 0.855 -> corretto
+
+# dalla documentazione si vede che gficf restituisce un vettore di 2 elem: 1° elem-> p-value, 2° elem-> log2(mean(vector1+1)/mean(vector2+1))
+# test_result_gficf[2] == log2(mean(a_test+1)/mean(b_test+1)) ritorna TRUE, quindi i 2 vettori che gficf considera sono gli stessi di wilcox 
+
+
+# Creo una matrice con valori random e calcolo il MWU p-value con wilcox e con gficf considerando
+# 1°vettore = prima metà della riga
+# 2°vettore = seconda metà della riga
+
+set.seed(422)
+
+# Ripeto con vettori di diversa lunghezza salvando il rmse tra pVal_Wilcox e pVal_Gficf
+nDifferentVectorLengths <- 4
+
+numRow = 10000
+
+pValuesWilcox <- matrix(0, nrow = numRow, ncol = nDifferentVectorLengths)
+pValuesGficf <- matrix(0, nrow = numRow, ncol = nDifferentVectorLengths)
+pValuesRcpp_MWU_Lor <- matrix(0, nrow = numRow, ncol = nDifferentVectorLengths)
+
+
+
+rmse <- rep(0, nDifferentVectorLengths)
+
+for (k in 1:nDifferentVectorLengths){
+
+numCol = 10^k
+
+randomMat <- matrix(runif(numRow*numCol), nrow = numRow, ncol = numCol)  
+# Anche usando rnorm e rbinom, i risultati sono molto simili (stessa forma dei grafici e stessi ordini di grandezza)
+
+for(i in 1:numRow){
+  temp <- wilcox.test(randomMat[i,1:floor(numCol/2)], randomMat[i,(floor(numCol/2)+1):numCol], alternative = "two.sided", paired = F, exact = F, correct = F)
+  pValuesWilcox[i,k] <- temp$p.value
+  
+  temp <- gficf:::rcpp_WMU_test(t(as.matrix(randomMat[i,])),1:floor(numCol/2),(floor(numCol/2)+1):numCol)
+  pValuesGficf[i,k] <- temp[1]
+}
+
+rmse[k] <- sqrt(mean(pValuesWilcox[,k] - pValuesGficf[,k])^2)
+
+
+}
+
+
+
+# Ripeto il confronto ma stavolta tra wilcox e rcpp_MWU_Lor
+
+rmse <- rep(0, nDifferentVectorLengths)
+
+for (k in 1:nDifferentVectorLengths){
+  
+  numCol = 10^k
+  
+  randomMat <- matrix(runif(numRow*numCol), nrow = numRow, ncol = numCol)  
+  # Anche usando rnorm e rbinom, i risultati sono molto simili (stessa forma dei grafici e stessi ordini di grandezza)
+  
+  for(i in 1:numRow){
+    temp <- wilcox.test(randomMat[i,1:floor(numCol/2)], randomMat[i,(floor(numCol/2)+1):numCol], alternative = "two.sided", paired = F, exact = F, correct = F)
+    pValuesWilcox[i,k] <- temp$p.value
+    
+    temp <- rcpp_MWU_Lor(randomMat[i,1:floor(numCol/2)], randomMat[i,(floor(numCol/2)+1):numCol])
+    pValuesRcpp_MWU_Lor[i,k] <- temp[1]
+  }
+  
+  rmse[k] <- sqrt(mean(pValuesWilcox[,k] - pValuesGficf[,k])^2)
+  
+  
+}
+
+#plot(1:nrow(pValuesWilcox), pValuesWilcox[,1]- pValuesRcpp_MWU_Lor[,1])
+
+##############################################################################################################################
+# saving results as png
+
+for (k in 1:nDifferentVectorLengths){
+  
+  png(file= paste('Histogram of p values (vect size: 10^', toString(k)),
+      width=512, height=512)
+  #dev.new()
+  
+  hist(pValuesGficf[,k], col=rgb(1,0,0,0.2), xlab = 'p-values', main = paste('Histogram of p values (vect size: 10^', toString(k)))
+  hist(pValuesWilcox[,k], col = rgb(0,0,1,0.2), add = TRUE)
+  legend('topleft', c('Wilcox', 'Gficf'),
+         fill=c(rgb(0,0,1,0.2), rgb(1,0,0,0.2)))
+  
+  dev.off()
+  
+}
+
+
+png(file= 'RMSE over vector_length',
+    width=512, height=512)
+dev.new()
+
+plot(1:nDifferentVectorLengths, rmse, xlab = 'log10(nDifferentVectorLengths')
+lines(1:nDifferentVectorLengths, rmse)
+legend('topright', paste('rmse@ vectroLength 10^3 = ',toString(rmse[3])))
+
+dev.off()
+
+for (k in 1:nDifferentVectorLengths){
+  
+  png(file= paste('Differenza tra PWilc. e pGficf, vect len= 10^',toString(k)),
+      width=512, height=512)
+
+#dev.new()
+hist(pValuesWilcox[,k] - pValuesGficf[,k], xlab = 'pValWilcox - pValGficf', main = paste('Differenza tra PWilc. e pGfi., vect len= (10^',toString(k), ')/2'))
+
+dev.off()
+
+}
+
+
+
+# Considero i vettori di lunghezza (10^k)/2 e li ordino on base al loro pValue
+# Vedo poi se i vettori vengono ordinati diversamente considerando PvalWilcox o PvalGficf
+
+
+nErrors <- rep(0,4)
+
+for(k in 1:4){
+  df <- data.frame(unsorted_position <- 1:length(pValuesWilcox[,k]), 
+                   pValWilcox = pValuesWilcox[,k], 
+                   pValGficf <- pValuesGficf[,k],
+                   pValRcpp_MWU_Lor <- pValuesRcpp_MWU_Lor[,k])
+  #str(df)
+  
+  df$rankSortedByWilcox <- rank(df$pValWilcox)
+  df$rankSortedByGficf <- rank(df$pValGficf)
+  df$rankSortedByRcpp_MWU_Lor <- rank(df$pValRcpp_MWU_Lor)
+  #str(df)
+  
+  df$difference <- df$rankSortedByWilcox - df$rankSortedByRGficf
+  nErrors[k] <- sum(df$difference != 0)
+}
+
+png(file= 'Errore nell ordinare coppie di vettori con gficf anzichè wilcox',
+    width=512, height=512)
+
+plot(1:4, (nErrors/length(pValuesWilcox[,k]))*100, xlab = 'log10(lunghezza vettori)', ylab = 'n. errori di ordinamento%', 
+     main = 'Errore% nell ordinare coppie di vettori con gficf anzichè wilcox')
+lines(1:4, (nErrors/length(pValuesWilcox[,k]))*100)
+
+dev.off()
+
+# Visto che i vettori vengono ordinati allo stesso modo(quando vectLen>(10^3)/2), 
+# ordino i Pvalue e visualizzo l'errore che commette gficf rispetto a wilcox al variare del pValue
+
+for(k in 1:4){
+  png(file= paste('Differenza tra Pwilcox e Pgficf al variare del pValue, vectLen = 10^',toString(k)),
+      width=512, height=512)
+  
+  plot((sort(pValuesWilcox[,k]) - sort(pValuesRcpp_MWU_Lor[,k])),
+       ylim = c(-0.01, 0.01),
+     main = paste('Differenza tra Pwilcox e Pgficf al variare del pValue, vectLen = 10^',toString(k)),
+     xlab = 'Pvalue[ci sono 10000 campioni, x=0-> pVal=0, x=10000-> pVal=1]',
+     ylab = 'Pwilcox - Pgficf')  # vectLen = (10^k)/2
+  
+  dev.off()
+  }
+
+
+
